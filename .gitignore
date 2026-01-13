@@ -1,0 +1,8 @@
+# Build output
+*.xdc
+
+# macOS
+.DS_Store
+
+# Debug tools (optional, large file)
+eruda.js

@@ -1,189 +1,137 @@
 'use strict';
-var memory = new WebAssembly.Memory({ initial : 108 });
 
-/*stdout and stderr goes here*/
-const output = document.getElementById("output");
+// Music mapping for DOOM (hash -> file path)
+const doomMusic = `b2e05b4e8dff8d76f8f4c3a724e7dbd365390536 = music/d_inter.ogg
+0c0acce45130bab935d2f1e85664b29a3c724fcd = music/d_intro.ogg
+fca4086939a68ae4ed84c96e6bf0bd5621ddbe3d = music/d_victor.ogg
+5971e5e20554f47ca06568832abd37db5e5a94f7 = music/d_intro.ogg
+99767e32769229897f7722848fb1ceccc2314d09 = music/d_e1m1.ogg
+b5e7dfb4efe9e688bf2ae6163c9d734e89e643b1 = music/d_e1m2.ogg
+fda8fa73e4d30a6b961cd46fe6e013395e87a682 = music/d_e1m3.ogg
+3805f9bf3f1702f7e7f5483a609d7d3c4daa2323 = music/d_e1m4.ogg
+f546ed823b234fe391653029159de7b67a15dbd4 = music/d_e1m5.ogg
+4450811b5a6748cfd83e3ea241222f6b88be33f9 = music/d_e1m6.ogg
+73edb50d96b0ac03be34a6134b33e4c8f00fc486 = music/d_e1m7.ogg
+47d711a6fd32f5047879975027e5b152b52aa1dc = music/d_e1m8.ogg
+62c631c2fdaa5ecd9a8d8f369917244f27128810 = music/d_e1m9.ogg
+7702a6449585428e718558d8ecc387ef1a21d948 = music/d_e2m1.ogg
+1cb1810989cbfae2b29ba8d6d0f8f1175de45f03 = music/d_e2m2.ogg
+7d740f3c881a22945e472c68754fd9485cb04750 = music/d_e2m4.ogg
+ae9c3dc2f9aeea002327a5204d080ea82505a310 = music/d_e2m6.ogg
+b26aad3caa420e9a2c76586cd59433b092fcba1c = music/d_e2m7.ogg
+90f06251a2a90bfaefd47a526b28264ea64f4f83 = music/d_e2m8.ogg
+b2fb439f23c08c8e2577d262e5ed910a6a62c735 = music/d_e3m1.ogg
+b6c07bb249526b864208922d2d9ab655f4aade78 = music/d_e3m2.ogg
+ce3587ee503ffe707b2d8b690396114fdae6b411 = music/d_e3m3.ogg
+d746ea2aa16b3237422cb18ec66f26e12cb08d40 = music/d_e3m8.ogg`;
 
-function readWasmString(offset, length) {
-    const bytes = new Uint8Array(memory.buffer, offset, length);
-    return new TextDecoder('utf8').decode(bytes);
+// Canvas element
+const canvas = document.getElementById('canvas');
+
+// Audio context for SDL2
+let audioContext = null;
+
+// Detect touch device and show controls
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+if (isTouchDevice) {
+  document.getElementById('controls').classList.add('visible');
 }
 
-function consoleLogString(offset, length) {
-    const string = readWasmString(offset, length);
-    console.log("\"" + string + "\"");
-}
+// This function runs after doom.js loads - called from bottom of this file
+async function initDoom() {
+  try {
+    // Load the WAD file first
+    const wadResponse = await fetch('doom.wad');
+    const wadData = await wadResponse.arrayBuffer();
 
-function appendOutput(style) {
-    return function(offset, length) {
-        const lines = readWasmString(offset, length).split('\n');
-        for (var i=0; i<lines.length; ++i) {
-            if (lines[i].length == 0) {
-                continue;
-            }
-            var t = document.createElement("span");
-            t.classList.add(style);
-            t.appendChild(document.createTextNode(lines[i]));
-            output.appendChild(t);
-            output.appendChild(document.createElement("br"));
-            t.scrollIntoView({behavior: "smooth", block: "end", inline: "nearest"}); /*smooth scrolling is experimental according to MDN*/
-        }
-    }
-}
+    // Initialize audio context
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    window.SDL2 = { audioContext };
 
-/*stats about how often doom polls the time*/
-const getmsps_stats = document.getElementById("getmsps_stats");
-const getms_stats = document.getElementById("getms_stats");
-var getms_calls_total = 0;
-var getms_calls = 0; // in current second
-window.setInterval(function() {
-    getms_calls_total += getms_calls;
-    getmsps_stats.innerText = getms_calls/1000 + "k";
-    getms_stats.innerText = getms_calls_total;
-    getms_calls = 0;
-}, 1000);
-
-
-function getMilliseconds() {
-    ++getms_calls;
-    return performance.now();
-}
-
-/*doom is rendered here*/
-const canvas = document.getElementById('screen');
-const doom_screen_width = 320*2;
-const doom_screen_height = 200*2;
-
-/*printing stats*/
-const fps_stats = document.getElementById("fps_stats");
-const drawframes_stats = document.getElementById("drawframes_stats");
-var number_of_draws_total = 0;
-var number_of_draws = 0; // in current second
-window.setInterval(function(){
-    number_of_draws_total += number_of_draws;
-    drawframes_stats.innerText = number_of_draws_total;
-    fps_stats.innerText = number_of_draws;
-    number_of_draws = 0;
-}, 1000);
-
-function drawCanvas(ptr) {
-    var doom_screen = new Uint8ClampedArray(memory.buffer, ptr, doom_screen_width*doom_screen_height*4)
-    var render_screen = new ImageData(doom_screen, doom_screen_width, doom_screen_height)
-    var ctx = canvas.getContext('2d');
-
-    ctx.putImageData(render_screen, 0, 0);
-
-    ++number_of_draws;
-}
-
-/*These functions will be available in WebAssembly. We also share the memory to share larger amounts of data with javascript, e.g. strings of the video output.*/
-var importObject = {
-    js: {
-        js_console_log: appendOutput("log"),
-        js_stdout: appendOutput("stdout"),
-        js_stderr: appendOutput("stderr"),
-        js_milliseconds_since_start: getMilliseconds,
-        js_draw_screen: drawCanvas,
-    },
-    env: {
-        memory: memory
-    }
-};
-
-WebAssembly.instantiateStreaming(fetch('doom.wasm'), importObject)
-    .then(obj => {
-
-    /*Initialize Doom*/
-    obj.instance.exports.main();
-
-
-    /*input handling*/
-    let doomKeyCode = function(keyCode) {
-        // Doom seems to use mostly the same keycodes, except for the following (maybe I'm missing a few.)
-        switch (keyCode) {
-        case 8:
-            return 127; // KEY_BACKSPACE
-        case 17:
-            return (0x80+0x1d); // KEY_RCTRL
-        case 18:
-            return (0x80+0x38); // KEY_RALT
-        case 37:
-            return 0xac; // KEY_LEFTARROW
-        case 38:
-            return 0xad; // KEY_UPARROW
-        case 39:
-            return 0xae; // KEY_RIGHTARROW
-        case 40:
-            return 0xaf; // KEY_DOWNARROW
-        default:
-            if (keyCode >= 65 /*A*/ && keyCode <= 90 /*Z*/) {
-            return keyCode + 32; // ASCII to lower case
-            }
-            if (keyCode >= 112 /*F1*/ && keyCode <= 123 /*F12*/ ) {
-            return keyCode + 75; // KEY_F1
-            }
-            return keyCode;
-        }
-    };
-    let keyDown = function(keyCode) {obj.instance.exports.add_browser_event(0 /*KeyDown*/, keyCode);};
-    let keyUp = function(keyCode) {obj.instance.exports.add_browser_event(1 /*KeyUp*/, keyCode);};
-
-    /*keyboard input*/
-    canvas.addEventListener('keydown', function(event) {
-        keyDown(doomKeyCode(event.keyCode));
-        event.preventDefault();
-    }, false);
-    canvas.addEventListener('keyup', function(event) {
-        keyUp(doomKeyCode(event.keyCode));
-        event.preventDefault();
-    }, false);
-
-    /*mobile touch input*/
-    [["enterButton", 13],
-     ["leftButton", 0xac],
-     ["rightButton", 0xae],
-     ["upButton", 0xad],
-     ["downButton", 0xaf],
-     ["ctrlButton", 0x80+0x1d],
-     ["spaceButton", 32],
-     ["altButton", 0x80+0x38]].forEach(([elementID, keyCode]) => {
-        console.log(elementID + " for " + keyCode);
-        var button = document.getElementById(elementID);
-        //button.addEventListener("click", () => {keyDown(keyCode); keyUp(keyCode)} );
-        button.addEventListener("touchstart", () => keyDown(keyCode));
-        button.addEventListener("touchend", () => keyUp(keyCode));
-        button.addEventListener("touchcancel", () => keyUp(keyCode));
+    // Initialize Emscripten module with our config
+    const doom = await Module({
+      canvas: canvas,
+      preRun: [function(module) {
+        // Write music config
+        const enc = new TextEncoder();
+        module.FS.writeFile('./doom1-music.cfg', enc.encode(doomMusic));
+        // Write WAD file
+        module.FS.writeFile('doom.wad', new Uint8Array(wadData));
+      }],
+      arguments: ['-iwad', 'doom.wad'],
     });
 
-    /*hint that the canvas should have focus to capute keyboard events*/
-    const focushint = document.getElementById("focushint");
-    const printFocusInHint = function(e) {
-        focushint.innerText = "Keyboard events will be captured as long as the the DOOM canvas has focus.";
-        focushint.style.fontWeight = "normal";
-    };
-    canvas.addEventListener('focusin', printFocusInHint, false);
+    // Setup touch controls after DOOM is loaded
+    setupTouchControls();
 
-    canvas.addEventListener('focusout', function(e) {
-        focushint.innerText = "Click on the canvas to capute input and start playing.";
-        focushint.style.fontWeight = "bold";
-    }, false);
-
+    // Focus canvas
     canvas.focus();
-    printFocusInHint();
+    canvas.addEventListener('click', () => {
+      canvas.focus();
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+    });
 
-    /*printing stats*/
-    const animationfps_stats = document.getElementById("animationfps_stats");
-    var number_of_animation_frames = 0; // in current second
-    window.setInterval(function(){
-        animationfps_stats.innerText = number_of_animation_frames;
-        number_of_animation_frames = 0;
-    }, 1000);
+    // Pause audio when tab hidden
+    document.addEventListener('visibilitychange', () => {
+      if (audioContext) {
+        document.hidden ? audioContext.suspend() : audioContext.resume();
+      }
+    });
 
-    /*Main game loop*/
-    function step(timestamp) {
-        ++number_of_animation_frames;
-        obj.instance.exports.doom_loop_step();
-        window.requestAnimationFrame(step);
-    }
-    window.requestAnimationFrame(step);
-});
+    console.log('DOOM initialized successfully');
+
+  } catch (err) {
+    console.error('Failed to load DOOM:', err);
+  }
+}
+
+// Touch control setup
+function setupTouchControls() {
+  const touchButtons = [
+    ['btnUp', 'ArrowUp', 38],
+    ['btnDown', 'ArrowDown', 40],
+    ['btnLeft', 'ArrowLeft', 37],
+    ['btnRight', 'ArrowRight', 39],
+    ['btnFire', 'Control', 17],
+    ['btnUse', ' ', 32],
+    ['btnStrafe', 'Alt', 18],
+    ['btnEnter', 'Enter', 13],
+  ];
+
+  touchButtons.forEach(([id, key, keyCode]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+
+    const sendKey = (type) => {
+      canvas.dispatchEvent(new KeyboardEvent(type, {
+        key,
+        keyCode,
+        code: key,
+        which: keyCode,
+        bubbles: true,
+        cancelable: true
+      }));
+    };
+
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      sendKey('keydown');
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+    }, { passive: false });
+
+    btn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      sendKey('keyup');
+    }, { passive: false });
+
+    btn.addEventListener('touchcancel', () => sendKey('keyup'));
+  });
+}
+
+// Wait for doom.js to load, then initialize
+// doom.js sets window.Module as a factory function
+window.addEventListener('load', initDoom);
