@@ -4,7 +4,10 @@ Classic DOOM (1993) running as a WebXDC mini-app for [Vector](https://vectorapp.
 
 ## Features
 
-- Full Episode 1 (Knee-Deep in the Dead)
+- All 3 original episodes:
+  - Knee-Deep in the Dead
+  - The Shores of Hell
+  - Inferno
 - Complete audio: sound effects + music
 - Fullscreen responsive canvas
 - Touch controls for mobile devices
@@ -44,4 +47,4 @@ This project builds upon the work of many talented developers:
 DOOM source code is released under the GNU General Public License (GPL).
 See the original [DOOM source](https://github.com/id-Software/DOOM) for details.
 
-The shareware WAD (`doom.wad`) is freely distributable but remains copyrighted by id Software.
+The game assets (`doom.wad`) remain copyrighted by id Software.
