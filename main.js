@@ -61,8 +61,9 @@ async function initDoom() {
       arguments: ['-iwad', 'doom.wad'],
     });
 
-    // Setup touch controls after DOOM is loaded
+    // Setup touch controls and gamepad after DOOM is loaded
     setupTouchControls();
+    setupGamepad();
 
     // Focus canvas
     canvas.focus();
@@ -85,6 +86,130 @@ async function initDoom() {
   } catch (err) {
     console.error('Failed to load DOOM:', err);
   }
+}
+
+// Gamepad support
+let gamepadIndex = null;
+let gamepadState = {};
+
+function setupGamepad() {
+  window.addEventListener('gamepadconnected', (e) => {
+    console.log('Gamepad connected:', e.gamepad.id);
+    gamepadIndex = e.gamepad.index;
+    requestAnimationFrame(pollGamepad);
+  });
+
+  window.addEventListener('gamepaddisconnected', (e) => {
+    console.log('Gamepad disconnected');
+    if (e.gamepad.index === gamepadIndex) {
+      gamepadIndex = null;
+    }
+  });
+
+  // Check if gamepad already connected
+  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (let i = 0; i < gamepads.length; i++) {
+    if (gamepads[i]) {
+      gamepadIndex = gamepads[i].index;
+      requestAnimationFrame(pollGamepad);
+      break;
+    }
+  }
+}
+
+function isButtonPressed(gp, index) {
+  return gp.buttons[index] && gp.buttons[index].pressed;
+}
+
+function pollGamepad() {
+  if (gamepadIndex === null) return;
+
+  const gamepads = navigator.getGamepads();
+  const gp = gamepads[gamepadIndex];
+  if (!gp) {
+    requestAnimationFrame(pollGamepad);
+    return;
+  }
+
+  // Standard gamepad mapping:
+  // Axes: 0=LStickX, 1=LStickY, 2=RStickX, 3=RStickY
+  // Buttons: 0=A, 1=B, 2=X, 3=Y, 4=LB, 5=RB, 6=LT, 7=RT
+  //          8=Select, 9=Start, 10=LStick, 11=RStick
+  //          12=DPadUp, 13=DPadDown, 14=DPadLeft, 15=DPadRight
+
+  const deadzone = 0.3;
+  const axes = gp.axes;
+
+  // Debug: log axes values periodically (every 60 frames)
+  if (!window.gpDebugFrame) window.gpDebugFrame = 0;
+  window.gpDebugFrame++;
+  if (window.gpDebugFrame % 60 === 0) {
+    console.log('Gamepad axes:', axes[0]?.toFixed(2), axes[1]?.toFixed(2), axes[2]?.toFixed(2), axes[3]?.toFixed(2));
+  }
+
+  const mapping = [
+    // D-pad and left stick for movement (WASD)
+    { input: () => isButtonPressed(gp, 12) || axes[1] < -deadzone, key: 'w', keyCode: 87 },  // Forward
+    { input: () => isButtonPressed(gp, 13) || axes[1] > deadzone, key: 's', keyCode: 83 },   // Back
+    { input: () => isButtonPressed(gp, 14) || axes[0] < -deadzone, key: 'a', keyCode: 65 },  // Strafe left
+    { input: () => isButtonPressed(gp, 15) || axes[0] > deadzone, key: 'd', keyCode: 68 },   // Strafe right
+    // D-pad also sends arrow keys for menu navigation
+    { input: () => isButtonPressed(gp, 12) || axes[3] < -deadzone, key: 'ArrowUp', keyCode: 38 },    // Menu up
+    { input: () => isButtonPressed(gp, 13) || axes[3] > deadzone, key: 'ArrowDown', keyCode: 40 },   // Menu down
+    // Right stick for turning (arrow keys)
+    { input: () => axes[2] < -deadzone, key: 'ArrowLeft', keyCode: 37 },   // Turn left
+    { input: () => axes[2] > deadzone, key: 'ArrowRight', keyCode: 39 },   // Turn right
+    // Triggers and bumpers for fire (Q)
+    { input: () => isButtonPressed(gp, 7) || isButtonPressed(gp, 5), key: 'q', keyCode: 81 },
+    // A/X for use (E) + Enter for menus
+    { input: () => isButtonPressed(gp, 0) || isButtonPressed(gp, 2), key: 'e', keyCode: 69 },
+    { input: () => isButtonPressed(gp, 0) || isButtonPressed(gp, 2), key: 'Enter', keyCode: 13 },
+    // B/Y for run (Shift)
+    { input: () => isButtonPressed(gp, 1) || isButtonPressed(gp, 3), key: 'Shift', keyCode: 16 },
+    // Start (menu button) for Escape
+    { input: () => isButtonPressed(gp, 9), key: 'Escape', keyCode: 27 },
+    // Select (share button) for Tab (map)
+    { input: () => isButtonPressed(gp, 8), key: 'Tab', keyCode: 9 },
+    // LB/LT for weapon prev
+    { input: () => isButtonPressed(gp, 4) || isButtonPressed(gp, 6), key: '[', keyCode: 219 },
+  ];
+
+  mapping.forEach((m, i) => {
+    const pressed = m.input();
+    const wasPressed = gamepadState[i];
+
+    if (pressed && !wasPressed) {
+      console.log('Gamepad keydown:', m.key, m.keyCode);
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        key: m.key,
+        keyCode: m.keyCode,
+        code: m.key,
+        which: m.keyCode,
+        bubbles: true,
+        cancelable: true,
+        view: window
+      }));
+      // Resume audio on first input
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+    } else if (!pressed && wasPressed) {
+      console.log('Gamepad keyup:', m.key, m.keyCode);
+      window.dispatchEvent(new KeyboardEvent('keyup', {
+        key: m.key,
+        keyCode: m.keyCode,
+        code: m.key,
+        which: m.keyCode,
+        bubbles: true,
+        cancelable: true,
+        view: window
+      }));
+    }
+
+    gamepadState[i] = pressed;
+  });
+
+  requestAnimationFrame(pollGamepad);
 }
 
 // Touch control setup

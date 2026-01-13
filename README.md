@@ -20,7 +20,18 @@ Classic DOOM (1993) running as a WebXDC mini-app for [Vector](https://vectorapp.
 - Ctrl: Fire
 - Space: Use/Open doors
 - Alt + Arrows: Strafe
+- Shift: Run
 - Enter: Menu select
+
+**Gamepad:**
+- Left Stick/D-Pad: Move/Turn
+- Right Stick: Strafe
+- RT/RB: Fire
+- A/X: Use/Open doors
+- B/Y: Run
+- LB/LT: Previous weapon
+- Start: Enter/Menu
+- Select: Escape
 
 **Mobile:** On-screen D-pad and action buttons
 
